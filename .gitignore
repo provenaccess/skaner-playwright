@@ -3,6 +3,10 @@
 # potrzebnych zeby ktos mogl wynik powtorzyc.
 *.csv
 
+# Logi przebiegu zawieraja domeny wraz z werdyktami - to jest wynik pomiaru,
+# a nie kod. Nie publikujemy go, tak samo jak plikow CSV.
+*.log
+
 __pycache__/
 *.pyc
 .pytest_cache/

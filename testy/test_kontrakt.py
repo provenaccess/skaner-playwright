@@ -114,3 +114,43 @@ def test_prog_tresci_jest_ustawiony_jawnie():
     ten test przypomni, ze zmienia sie tym samym klasyfikacja
     calego zbioru."""
     assert zbadaj.MIN_ZNAKOW_TRESCI == 200
+
+
+# ------------------------------------------- strona parkingowa
+
+@pytest.mark.parametrize("tytul,domena,znakow,wezly", [
+    ("asasushi.com", "asasushi.com", 120, 30),
+    ("Asa Sushi", "asasushi.com", 200, 45),
+    ("state-chicago", "state-chicago.com", 80, 20),
+])
+def test_rozpoznaje_strone_parkingowa(tytul, domena, znakow, wezly):
+    assert zbadaj.czy_parkingowa(tytul, domena, znakow, wezly) is True
+
+
+@pytest.mark.parametrize("tytul,domena,znakow,wezly", [
+    # dziejaca restauracja: duzo tresci
+    ("Asa Sushi", "asasushi.com", 2500, 400),
+    # tytul nie ma nic wspolnego z domena
+    ("Menu i rezerwacje", "asasushi.com", 100, 30),
+    # tresci malo, ale DOM rozbudowany - to nie parking
+    ("asasushi.com", "asasushi.com", 100, 500),
+    # brak tytulu
+    ("", "asasushi.com", 50, 10),
+])
+def test_nie_zglasza_falszywie_strony_parkingowej(tytul, domena, znakow, wezly):
+    assert zbadaj.czy_parkingowa(tytul, domena, znakow, wezly) is False
+
+
+def test_brak_liczby_wezlow_nie_powoduje_falszywego_werdyktu():
+    """Jesli nie udalo sie policzyc wezlow DOM, nie zgadujemy - regula
+    wymaga wszystkich trzech warunkow."""
+    assert zbadaj.czy_parkingowa("asasushi.com", "asasushi.com", 100, None) is False
+
+
+@pytest.mark.parametrize("a,b", [
+    ("Bar Roza", "bar-roza.pl"),
+    ("asasushi.com", "www.asasushi.com"),
+    ("STATE-CHICAGO", "state-chicago.com"),
+])
+def test_rdzen_zestawia_tytul_z_domena(a, b):
+    assert zbadaj.rdzen(a) == zbadaj.rdzen(b)

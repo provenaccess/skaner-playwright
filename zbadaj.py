@@ -183,6 +183,15 @@ def zbadaj_domene(strona, domena, timeout_ms, url=None, czekaj_ms=2500):
     except PwError:
         tresc = ""
 
+    # Liczba wezlow DOM - potrzebna wylacznie do rozpoznania strony
+    # parkingowej. OSOBNE wywolanie, zeby nie ruszac SKRYPT_OCENY, ktory ma
+    # zostac identyczny znak w znak z wersja PowerShell. Inaczej porownanie
+    # obu implementacji przestaloby cokolwiek znaczyc.
+    try:
+        wezlow_dom = strona.evaluate("document.getElementsByTagName('*').length")
+    except PwError:
+        wezlow_dom = None
+
     rekord.update({
         "Tytul": tytul,
         "Znakow": o["znakow"],
@@ -203,16 +212,50 @@ def zbadaj_domene(strona, domena, timeout_ms, url=None, czekaj_ms=2500):
     rekord["Razem"] = suma
 
     # --- klasyfikacja: czym ta strona w ogole jest ---
+    # Kolejnosc jak w Zbadaj-Strone.ps1: najpierw czym strona NIE jest,
+    # dopiero na koncu 'ok'. Przekierowanie przed strona parkingowa, bo
+    # domena sprzedana czesto prowadzi gdzie indziej.
     if czy_strona_bledu(tytul, tresc):
         rekord["Werdykt"] = "strona bledu przegladarki"
-    elif o["znakow"] < MIN_ZNAKOW_TRESCI:
-        rekord["Werdykt"] = "strona praktycznie pusta"
     elif czy_przekierowana(domena, strona.url):
         rekord["Werdykt"] = "przekierowanie na inna domene"
+    elif czy_parkingowa(tytul, domena, o["znakow"], wezlow_dom):
+        rekord["Werdykt"] = "strona parkingowa"
+    elif o["znakow"] < MIN_ZNAKOW_TRESCI:
+        rekord["Werdykt"] = "strona praktycznie pusta"
     else:
         rekord["Werdykt"] = "ok"
 
     return rekord
+
+
+def rdzen(nazwa):
+    """Rdzen nazwy domeny albo tytulu - do porownania ze soba.
+
+    Odpowiednik funkcji Rdzen z Zbadaj-Strone.ps1: zostawia same litery
+    i cyfry z pierwszego czlonu, zeby 'Bar Roza' i 'bar-roza.pl' dalo sie
+    zestawic.
+    """
+    n = (nazwa or "").strip().lower()
+    n = n.removeprefix("www.")
+    n = n.split(".")[0]
+    return "".join(c for c in n if c.isalnum())
+
+
+def czy_parkingowa(tytul, domena, znakow, wezlow_dom):
+    """Strona parkingowa: tytul rowny nazwie domeny, znikoma tresc,
+    prawie pusty DOM.
+
+    Regula przeniesiona z Zbadaj-Strone.ps1 wraz z progami. Wersja
+    Playwright dlugo jej nie miala i na probce 163 domen dawalo to cztery
+    bledne werdykty: strony zaparkowane trafialy do 'praktycznie pusta'
+    albo nawet do 'ok'.
+    """
+    if not tytul:
+        return False
+    return (rdzen(tytul) == rdzen(domena)
+            and znakow < 400
+            and wezlow_dom is not None and wezlow_dom < 60)
 
 
 def czy_przekierowana(domena, adres_koncowy):
@@ -277,7 +320,6 @@ def main():
             locale="en-US",
             ignore_https_errors=False,   # chcemy WIDZIEC blad certyfikatu, nie ukryc go
         )
-        strona = kontekst.new_page()
 
         for i, dom in enumerate(lista, 1):
             # restart przegladarki, zeby dlugi przebieg nie zjadl pamieci
@@ -286,10 +328,28 @@ def main():
                 przegladarka = uruchom_przegladarke(p)
                 kontekst = przegladarka.new_context(
                     viewport={"width": 1280, "height": 900}, locale="en-US")
-                strona = kontekst.new_page()
                 print("   [restart przegladarki po %d stronach]" % (i - 1))
 
-            r = zbadaj_domene(strona, dom, a.timeout * 1000)
+            # NOWA KARTA NA KAZDA DOMENE.
+            #
+            # Pierwsza wersja tego skryptu uzywala jednej karty dla calej listy
+            # i na reprezentatywnej probce 163 domen zwrocila 86 bledow
+            # nawigacji - 53%. Komunikat brzmial:
+            #   "Navigation to <domena> is interrupted by another navigation
+            #    to <POPRZEDNIA domena>"
+            # Czyli niedokonczone przekierowanie poprzedniej strony przerywalo
+            # wejscie na nastepna. Wersja PowerShell tego bledu nie miala,
+            # bo otwierala nowa karte na kazda domene
+            # (/json/new?url=about:blank).
+            #
+            # Na probce 12 domen blad byl niewidoczny, bo wszystkie byly
+            # wczesniej zaklasyfikowane jako dzialajace i zadna nie
+            # przekierowywala.
+            strona = kontekst.new_page()
+            try:
+                r = zbadaj_domene(strona, dom, a.timeout * 1000)
+            finally:
+                strona.close()
             rekordy.append(r)
 
             print("  %4d/%d  %-34s %-28s %s" % (
