@@ -1,0 +1,12 @@
+# Wyniki pomiarow zawieraja adresy domen firm - publikujemy kod i podsumowania,
+# nie surowe zbiory. probka.txt jest wyjatkiem: to 12 domen uzytych w porownaniu,
+# potrzebnych zeby ktos mogl wynik powtorzyc.
+*.csv
+
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+Thumbs.db
+desktop.ini
