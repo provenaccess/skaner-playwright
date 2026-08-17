@@ -25,11 +25,27 @@ Użycie:
 import argparse
 import csv
 import json
+import os
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright, Error as PwError
+
+
+def uruchom_przegladarke(p):
+    """Startuje przegladarke.
+
+    Lokalnie uzywa Chrome zainstalowanego w systemie (channel="chrome"),
+    zeby nie pobierac drugiej kopii. W CI takiego Chrome nie ma, wiec
+    zmienna SKANER_CHANNEL="" przelacza na przegladarke wbudowana
+    w Playwright. Ta sama sciezka kodu w obu miejscach.
+    """
+    kanal = os.environ.get("SKANER_CHANNEL", "chrome")
+    if kanal:
+        return p.chromium.launch(channel=kanal, headless=True)
+    return p.chromium.launch(headless=True)
 
 # --------------------------------------------------------------------------
 # Ten sam skrypt oceny co w Pobierz-Wyrenderowane.ps1 — nie zmieniony ani
@@ -112,9 +128,17 @@ def czy_strona_bledu(tytul, tresc):
     return any(s in t for s in sygnaly)
 
 
-def zbadaj_domene(strona, domena, timeout_ms):
+def zbadaj_domene(strona, domena, timeout_ms, url=None, czekaj_ms=2500):
+    """Mierzy jedna strone i zwraca rekord.
+
+    Parametr url pozwala podac adres wprost - uzywaja tego testy,
+    ktore mierza lokalne pliki HTML zamiast zywych witryn. Dzieki temu
+    testy sa szybkie i deterministyczne: nie zaleza od tego, czy jakas
+    restauracja ma dzis wlaczony serwer.
+    """
     rekord = pusty_rekord(domena)
-    url = "https://" + domena
+    if url is None:
+        url = "https://" + domena
 
     try:
         odp = strona.goto(url, wait_until="load", timeout=timeout_ms)
@@ -133,8 +157,12 @@ def zbadaj_domene(strona, domena, timeout_ms):
         rekord["Werdykt"] = "blad HTTP %d" % odp.status
         return rekord
 
-    # czas na dorysowanie tresci po zdarzeniu load (odpowiednik Start-Sleep 3)
-    strona.wait_for_timeout(2500)
+    # Czas na dorysowanie tresci po zdarzeniu load (odpowiednik Start-Sleep 3
+    # w wersji PowerShell). Potrzebny przy zywych witrynach, ktore doladowuja
+    # tresc leniwie. Testy na lokalnych plikach podaja tu 0 - nie ma czego
+    # czekac, a zestaw testow ma byc szybki.
+    if czekaj_ms:
+        strona.wait_for_timeout(czekaj_ms)
 
     try:
         surowy = strona.evaluate(SKRYPT_OCENY)
@@ -179,15 +207,32 @@ def zbadaj_domene(strona, domena, timeout_ms):
         rekord["Werdykt"] = "strona bledu przegladarki"
     elif o["znakow"] < MIN_ZNAKOW_TRESCI:
         rekord["Werdykt"] = "strona praktycznie pusta"
+    elif czy_przekierowana(domena, strona.url):
+        rekord["Werdykt"] = "przekierowanie na inna domene"
     else:
-        gospodarz_docelowy = domena.replace("www.", "").lower()
-        gospodarz_koncowy = strona.url.split("/")[2].replace("www.", "").lower() if "/" in strona.url[8:] or True else ""
-        if gospodarz_docelowy.split(".")[0] not in gospodarz_koncowy:
-            rekord["Werdykt"] = "przekierowanie na inna domene"
-        else:
-            rekord["Werdykt"] = "ok"
+        rekord["Werdykt"] = "ok"
 
     return rekord
+
+
+def czy_przekierowana(domena, adres_koncowy):
+    """Czy adres koncowy prowadzi gdzie indziej niz badana domena.
+
+    Adresy file:// pomijamy - uzywaja ich testy na lokalnych plikach,
+    gdzie pojecie przekierowania nie ma zastosowania.
+    """
+    if adres_koncowy.startswith("file:"):
+        return False
+
+    gospodarz = urlparse(adres_koncowy).hostname or ""
+    gospodarz = gospodarz.removeprefix("www.").lower()
+    cel = domena.removeprefix("www.").lower()
+    if not gospodarz:
+        return False
+
+    # zgodny, jesli rdzen nazwy badanej domeny wystepuje w adresie koncowym
+    rdzen = cel.split(".")[0]
+    return rdzen not in gospodarz
 
 
 def zapisz(sciezka, rekordy):
@@ -226,7 +271,7 @@ def main():
     start = time.time()
 
     with sync_playwright() as p:
-        przegladarka = p.chromium.launch(channel="chrome", headless=True)
+        przegladarka = uruchom_przegladarke(p)
         kontekst = przegladarka.new_context(
             viewport={"width": 1280, "height": 900},
             locale="en-US",
@@ -238,7 +283,7 @@ def main():
             # restart przegladarki, zeby dlugi przebieg nie zjadl pamieci
             if a.restart_co and i > 1 and (i - 1) % a.restart_co == 0:
                 kontekst.close(); przegladarka.close()
-                przegladarka = p.chromium.launch(channel="chrome", headless=True)
+                przegladarka = uruchom_przegladarke(p)
                 kontekst = przegladarka.new_context(
                     viewport={"width": 1280, "height": 900}, locale="en-US")
                 strona = kontekst.new_page()

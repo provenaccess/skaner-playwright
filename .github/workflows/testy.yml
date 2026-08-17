@@ -1,0 +1,60 @@
+name: testy
+
+# Uruchamia zestaw testow przy kazdym wyslaniu kodu i przy kazdym
+# zgloszeniu zmian. Jesli ktorykolwiek test nie przejdzie, na liscie
+# commitow pojawia sie czerwony krzyzyk zamiast zielonego znaczka.
+#
+# Testy nie korzystaja z sieci - mierza lokalne pliki HTML z katalogu
+# testy/strony. Dzieki temu wynik jest powtarzalny i nie zalezy od tego,
+# czy jakas witryna jest w danej chwili dostepna.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  testy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Pobranie kodu
+        uses: actions/checkout@v4
+
+      - name: Instalacja Pythona
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalacja zaleznosci
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install playwright pytest
+
+      - name: Instalacja przegladarki dla Playwright
+        run: python -m playwright install --with-deps chromium
+
+      - name: Testy kontraktu walidacyjnego
+        # Te testy nie potrzebuja przegladarki - sprawdzaja sama logike.
+        run: python -m pytest testy/test_kontrakt.py -v
+
+      - name: Testy pomiaru na lokalnych stronach
+        # SKANER_CHANNEL puste = uzyj przegladarki wbudowanej w Playwright.
+        # Lokalnie zmienna jest nieustawiona i kod bierze Chrome z systemu.
+        env:
+          SKANER_CHANNEL: ''
+        run: python -m pytest testy/test_pomiar.py -v
+
+      - name: Podsumowanie
+        if: always()
+        run: |
+          echo "### Wynik testow" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Testy kontraktu: logika klasyfikacji, wykrywanie strony bledu" >> $GITHUB_STEP_SUMMARY
+          echo "przegladarki, rozpoznawanie przekierowan." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Testy pomiaru: osiem lokalnych stron HTML, kazda reprezentuje" >> $GITHUB_STEP_SUMMARY
+          echo "jeden przypadek o znanym z gory wyniku." >> $GITHUB_STEP_SUMMARY

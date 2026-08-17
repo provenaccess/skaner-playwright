@@ -1,5 +1,7 @@
 # Ten sam pomiar, dwie implementacje
 
+[![testy](https://github.com/provenaccess/skaner-playwright/actions/workflows/testy.yml/badge.svg)](https://github.com/provenaccess/skaner-playwright/actions/workflows/testy.yml)
+
 Pomiar dostępności stron przepisany z **PowerShell + surowy Chrome DevTools
 Protocol** na **Python + Playwright**, a następnie zestawiony z wynikiem
 pierwotnej implementacji.
@@ -91,6 +93,46 @@ oczekiwania na `load`, statusu odpowiedzi HTTP i adresu po przekierowaniach.
 
 Kolejność ma znaczenie — najpierw napisałem trudniejszą wersję i dopiero przez
 nią rozumiem, co Playwright robi pod spodem.
+
+---
+
+## Testy — 34 przypadki, bez sieci
+
+Zestaw testów w `pytest`, uruchamiany automatycznie przez GitHub Actions
+przy każdym wysłaniu kodu.
+
+**Testy nie korzystają z internetu.** Mierzą osiem lokalnych plików HTML
+z katalogu `testy/strony`, z których każdy reprezentuje jeden przypadek
+o znanym z góry wyniku. Test, który zależy od tego, czy jakaś restauracja
+ma dziś włączony serwer, nie jest testem — jest sondą.
+
+| Plik | Co sprawdza | Testów |
+|---|---|---|
+| `testy/test_kontrakt.py` | logikę bez przeglądarki: klasyfikację, wykrywanie strony błędu przeglądarki, rozpoznawanie przekierowań | 24 |
+| `testy/test_pomiar.py` | pomiar na lokalnych stronach: liczenie pustych linków, obrazków bez `alt`, pól bez etykiet, progu treści | 10 |
+
+Co konkretnie jest zabezpieczone testem:
+
+- **Strona błędu przeglądarki nie może dostać werdyktu `ok`.** To jest ta
+  klasa błędu, która w pierwotnym badaniu przeszła niezauważona — 12 witryn
+  z nieprawidłowym certyfikatem zostało policzonych jako treść restauracji.
+- **Fałszywy alarm jest groźniejszy niż przeoczenie.** Restauracja pisząca
+  o certyfikacie HACCP nie może być zaklasyfikowana jako błąd certyfikatu
+  SSL. Osobny test pilnuje właśnie tego kierunku.
+- **Rekord przed pomiarem ma werdykt `blad`, nie `ok`.** Wartość domyślna
+  `ok` byłaby dokładnie tym błędem, który ten projekt istnieje żeby wykrywać.
+- **Suma naruszeń jest przeliczana niezależnie** z pojedynczych kolumn.
+  Jeśli się nie zgadza, błąd jest w agregacji, nie w detektorze.
+
+Uruchomienie lokalne:
+
+```bash
+pip install pytest
+python -m pytest testy/ -v
+```
+
+Cały zestaw wykonuje się w około 14 sekund, bo strony testowe nie
+doładowują treści i pomiar nie czeka na nią (`czekaj_ms=0`).
 
 ---
 
