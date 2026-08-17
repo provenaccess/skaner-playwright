@@ -8,6 +8,8 @@ Sens tego projektu nie polega na przepisaniu kodu na nowszą bibliotekę.
 Polega na odpowiedzi na pytanie, którego zwykle nikt nie zadaje:
 **czy wynik pomiaru przetrwa zmianę narzędzia, którym go wykonano?**
 
+Pomiar pierwotny objął 1 950 domen, z których 1 554 zmierzono silnikiem axe-core.
+
 Projekt pierwotny: [skaner-dostepnosci](https://github.com/provenaccess/skaner-dostepnosci)
 · Wyniki: [provenaccess.com](https://provenaccess.com)
 
