@@ -19,45 +19,59 @@ Projekt pierwotny: [skaner-dostepnosci](https://github.com/provenaccess/skaner-d
 
 ## Wynik porównania
 
-Próbka 12 witryn zmierzonych obydwoma implementacjami:
+**Pierwsza próbka, 12 witryn: zgodność werdyktu 100%. I była bezwartościowa.**
 
-| Miara | Wynik |
+Dobrałem ją wyłącznie ze stron zaklasyfikowanych wcześniej jako działające,
+więc nie zawierała ani jednego przypadku, w którym niezgodność mogłaby
+wystąpić. Sto procent na takiej próbce nie mówi nic.
+
+Na **reprezentatywnej próbce 163 domen**, obejmującej wszystkie osiem
+kategorii werdyktu wraz ze stronami odrzuconymi:
+
+| Etap | Zgodność werdyktu |
 |---|---|
-| **Zgodność werdyktu** | **12 / 12 = 100%** |
-| **Odsetek stron z pustym linkiem — PowerShell** | 6 z 12 = **50,0%** |
-| **Odsetek stron z pustym linkiem — Playwright** | 6 z 12 = **50,0%** |
-| Zgodność „ma / nie ma pustego linku" | 12 / 12 = 100% |
+| pierwsza wersja, jedna karta przeglądarki na całą listę | 53% błędów nawigacji |
+| po naprawie: nowa karta na każdą domenę | **89,6%** (146 / 163) |
+| po dodaniu detektora strony parkingowej | **93,3%** (152 / 163) |
 
-**Wniosek zbiorczy jest identyczny**, mimo że liczby jednostkowe się różnią:
+Rozbieżności ujawniły **dwa defekty mojej implementacji**, nie różnice zdań:
+
+**Współdzielona karta przeglądarki.** Jedna karta dla całej listy powodowała,
+że niedokończone przekierowanie poprzedniej strony przerywało wejście na
+następną. Komunikat mówił wprost: `Navigation to <domena> is interrupted by
+another navigation to <POPRZEDNIA domena>`. Na próbce 12 witryn było to
+niewidoczne, bo żadna z nich nie przekierowywała. Wersja PowerShell tego
+błędu nie miała, bo otwierała nową kartę na każdą domenę.
+
+**Brak detektora strony parkingowej.** Wersja PowerShell rozpoznaje domeny
+zaparkowane po regule: tytuł równy nazwie domeny, mniej niż 400 znaków
+treści, mniej niż 60 węzłów DOM. Moja wersja nie miała tego wcale i wrzucała
+je do „praktycznie pusta" albo nawet do „ok".
+
+## Miary, które nadal się różnią
 
 | Miara | średnia PowerShell | średnia Playwright |
 |---|---|---|
-| linków na stronie | 31,7 | 45,2 |
-| obrazków na stronie | 12,9 | 20,6 |
-| obrazków bez `alt` | 4,5 | 2,2 |
-| znaków treści | 2710,7 | 2708,8 |
+| linków na stronie | 23,4 | 93,0 |
+| obrazków na stronie | 10,9 | 40,3 |
+| obrazków bez `alt` | 3,8 | 0,5 |
+| znaków treści | 2251,7 | 2328,0 |
 
-## Skąd te różnice — i dlaczego są informacją, nie błędem
+Odsetek stron z pustym linkiem: **39,7% wobec 49,6%**, zgodność werdyktu
+„ma / nie ma pustego linku" wynosi 80,2%.
 
-Wersja Playwright widzi **więcej elementów**: 45 linków wobec 32, 21 obrazków
-wobec 13. Powód jest prozaiczny — czeka na zdarzenie `load`, a potem jeszcze
-2,5 sekundy, i łapie treść doładowywaną leniwie. Wersja pierwotna mierzyła
-wcześniej.
+Liczba znaków treści zgadza się niemal dokładnie, a liczba elementów różni
+się czterokrotnie. To znaczy, że obie implementacje widzą **tę samą treść
+w innym momencie jej życia**: wersja Playwright czeka na zdarzenie `load`
+i jeszcze 2,5 sekundy, więc łapie elementy doładowywane leniwie. Wersja
+pierwotna mierzyła wcześniej.
 
-Ciekawsze jest to, co z tego wynika: **obrazków jest więcej, a obrazków bez
-`alt` mniej** (2,2 wobec 4,5). Elementy doładowane później to głównie zdjęcia
-produktowe, które mają opis. Te złapane wcześniej to ikony i grafiki
-dekoracyjne, które opisu nie mają. Zmiana momentu pomiaru przesuwa więc
-proporcję, choć nie zmienia werdyktu.
+Kierunek różnicy przy `alt` to potwierdza: obrazków jest więcej, a obrazków
+bez opisu **mniej** — doładowywane później zdjęcia produktowe mają opisy,
+wcześniej złapane ikony ich nie mają.
 
-Liczba znaków treści zgadza się niemal dokładnie — 2710,7 wobec 2708,8 — co
-potwierdza, że to nie jest przypadkowy szum, a różnica dotyczy konkretnie
-elementów doładowywanych.
-
-Oba pomiary wykonano w różnych dniach, więc część różnic to zwykłe zmiany
-na stronach.
-
----
+Oba pomiary wykonano w odstępie kilku dni, więc część różnic to zwykłe
+zmiany na stronach.
 
 ## Co zostało przeniesione świadomie
 
@@ -96,7 +110,7 @@ nią rozumiem, co Playwright robi pod spodem.
 
 ---
 
-## Testy — 34 przypadki, bez sieci
+## Testy — 54 przypadki, bez sieci
 
 Zestaw testów w `pytest`, uruchamiany automatycznie przez GitHub Actions
 przy każdym wysłaniu kodu.
@@ -108,7 +122,7 @@ ma dziś włączony serwer, nie jest testem — jest sondą.
 
 | Plik | Co sprawdza | Testów |
 |---|---|---|
-| `testy/test_kontrakt.py` | logikę bez przeglądarki: klasyfikację, wykrywanie strony błędu przeglądarki, rozpoznawanie przekierowań | 24 |
+| `testy/test_kontrakt.py` | logikę bez przeglądarki: klasyfikację werdyktu, stronę błędu przeglądarki, przekierowania, stronę parkingową, mapowanie błędu certyfikatu | 44 |
 | `testy/test_pomiar.py` | pomiar na lokalnych stronach: liczenie pustych linków, obrazków bez `alt`, pól bez etykiet, progu treści | 10 |
 
 Co konkretnie jest zabezpieczone testem:
@@ -123,6 +137,10 @@ Co konkretnie jest zabezpieczone testem:
   `ok` byłaby dokładnie tym błędem, który ten projekt istnieje żeby wykrywać.
 - **Suma naruszeń jest przeliczana niezależnie** z pojedynczych kolumn.
   Jeśli się nie zgadza, błąd jest w agregacji, nie w detektorze.
+- **Błąd certyfikatu dostaje ten sam werdykt co w wersji PowerShell.**
+  Tam przeglądarka zwracała własną stronę błędu i była mierzona; tutaj
+  Playwright rzuca wyjątek. Bez zmapowania jednego na drugie porównanie
+  obu implementacji kłamałoby.
 
 Uruchomienie lokalne:
 
@@ -131,7 +149,7 @@ pip install pytest
 python -m pytest testy/ -v
 ```
 
-Cały zestaw wykonuje się w około 14 sekund, bo strony testowe nie
+Cały zestaw wykonuje się w około 22 sekundy, bo strony testowe nie
 doładowują treści i pomiar nie czeka na nią (`czekaj_ms=0`).
 
 ---
@@ -160,7 +178,8 @@ py zbadaj.py --domena example.com
 |---|---|
 | `zbadaj.py` | pomiar: Playwright, klasyfikacja werdyktu, zapis częściowy, restart przeglądarki |
 | `porownaj.py` | zestawienie wyniku z implementacją PowerShell, zgodność werdyktu i miar |
-| `probka.txt` | lista domen użyta w porównaniu |
+| `probka.txt` | 12 domen z pierwszego, wadliwie dobranego porównania |
+| `probka-150.txt` | 163 domeny, przekrój wszystkich ośmiu kategorii werdyktu |
 
 ## Czego ten pomiar nie obejmuje
 

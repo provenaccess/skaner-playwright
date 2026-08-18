@@ -154,3 +154,29 @@ def test_brak_liczby_wezlow_nie_powoduje_falszywego_werdyktu():
 ])
 def test_rdzen_zestawia_tytul_z_domena(a, b):
     assert zbadaj.rdzen(a) == zbadaj.rdzen(b)
+
+
+# ------------------------------------- blad certyfikatu z Playwrighta
+
+@pytest.mark.parametrize("komunikat", [
+    "Page.goto: net::ERR_CERT_DATE_INVALID at https://example.com/",
+    "Page.goto: net::ERR_CERT_AUTHORITY_INVALID at https://example.com/",
+    "Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://example.com/",
+    "Page.goto: net::ERR_NAME_NOT_RESOLVED at https://example.com/",
+    "Page.goto: net::ERR_CONNECTION_REFUSED at https://example.com/",
+])
+def test_komunikat_o_certyfikacie_to_strona_bledu_a_nie_blad_nawigacji(komunikat):
+    """Wersja PowerShell dostawala w tej sytuacji strone bledu przegladarki
+    i mierzyla ja. Playwright rzuca wyjatek. Ta sama rzeczywistosc musi
+    dostac ten sam werdykt, inaczej porownanie implementacji klamie."""
+    assert zbadaj.czy_blad_certyfikatu(komunikat) is True
+
+
+@pytest.mark.parametrize("komunikat", [
+    "Page.goto: Timeout 22000ms exceeded",
+    'Navigation to "https://a.com/" is interrupted by another navigation',
+    "Page.goto: net::ERR_ABORTED at https://example.com/",
+    "",
+])
+def test_zwykly_blad_nawigacji_nie_jest_bledem_certyfikatu(komunikat):
+    assert zbadaj.czy_blad_certyfikatu(komunikat) is False

@@ -128,6 +128,16 @@ def czy_strona_bledu(tytul, tresc):
     return any(s in t for s in sygnaly)
 
 
+def czy_blad_certyfikatu(komunikat):
+    """Czy komunikat Playwrighta opisuje odrzucony certyfikat albo
+    nieistniejaca domene - czyli to, co przegladarka pokazalaby jako
+    wlasna strone bledu."""
+    sygnaly = ("err_cert", "err_ssl", "ssl_", "err_name_not_resolved",
+               "err_connection_refused", "err_connection_closed")
+    k = (komunikat or "").lower()
+    return any(s in k for s in sygnaly)
+
+
 def zbadaj_domene(strona, domena, timeout_ms, url=None, czekaj_ms=2500):
     """Mierzy jedna strone i zwraca rekord.
 
@@ -143,8 +153,20 @@ def zbadaj_domene(strona, domena, timeout_ms, url=None, czekaj_ms=2500):
     try:
         odp = strona.goto(url, wait_until="load", timeout=timeout_ms)
     except PwError as e:
-        rekord["Werdykt"] = "blad nawigacji"
-        rekord["Uwaga"] = str(e).splitlines()[0][:160]
+        komunikat = str(e).splitlines()[0][:160]
+        rekord["Uwaga"] = komunikat
+        # Blad certyfikatu to NIE jest blad nawigacji.
+        #
+        # Wersja PowerShell w tej sytuacji dostawala od przegladarki jej
+        # wlasna strone bledu i mierzyla ja - stad werdykt "strona bledu
+        # przegladarki". Playwright zamiast tego rzuca wyjatek, wiec ta sama
+        # rzeczywistosc wyglada inaczej na powierzchni.
+        #
+        # Na probce 163 domen ta jedna roznica odpowiadala za piec z jedenastu
+        # niezgodnosci miedzy implementacjami.
+        rekord["Werdykt"] = (
+            "strona bledu przegladarki" if czy_blad_certyfikatu(komunikat)
+            else "blad nawigacji")
         return rekord
 
     # KOD HTTP I ADRES KONCOWY — bez tych dwoch rzeczy rekord nie ma prawa
