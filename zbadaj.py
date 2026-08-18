@@ -111,12 +111,21 @@ def pusty_rekord(domena):
 
 
 def czy_strona_bledu(tytul, tresc):
-    """Wykrywa stronę błędu SAMEJ PRZEGLĄDARKI.
+    """Wykrywa stronę, która nie jest witryną, tylko komunikatem o odmowie.
 
-    To jest ta klasa błędu, która w pierwotnym badaniu przeszła niezauważona:
-    12 witryn z nieprawidłowym certyfikatem oddało stronę błędu Edge,
-    a skaner policzył ją jako treść restauracji i zaraportował jako
-    udany pomiar.
+    To jest ta klasa błędu, która w pierwotnym badaniu przeszła
+    niezauważona. Dwanaście witryn oddało stronę blokady — tytuł
+    „Access Denied" (10), „403 Forbidden" (1), „404 Not Found" (1),
+    treść od 52 do 265 znaków — a skaner policzył ją jako treść
+    restauracji i zaraportował udany pomiar.
+
+    Najważniejsze w tym jest kod odpowiedzi: JEDENAŚCIE Z DWUNASTU
+    oddało HTTP 200. Sprawdzanie samego kodu odpowiedzi nie wykryłoby
+    żadnej z nich.
+
+    Uwaga na nazwę werdyktu: „strona błędu przeglądarki" jest
+    odziedziczona po wersji PowerShell i jest nieprecyzyjna. Te strony
+    generuje serwer, nie przeglądarka.
     """
     sygnaly = [
         "err_cert", "err_ssl", "err_name_not_resolved", "err_connection",
@@ -128,14 +137,20 @@ def czy_strona_bledu(tytul, tresc):
     return any(s in t for s in sygnaly)
 
 
-def czy_blad_certyfikatu(komunikat):
-    """Czy komunikat Playwrighta opisuje odrzucony certyfikat albo
-    nieistniejaca domene - czyli to, co przegladarka pokazalaby jako
-    wlasna strone bledu."""
-    sygnaly = ("err_cert", "err_ssl", "ssl_", "err_name_not_resolved",
-               "err_connection_refused", "err_connection_closed")
-    k = (komunikat or "").lower()
-    return any(s in k for s in sygnaly)
+def werdykt_wyjatku_nawigacji(komunikat):
+    """Kazdy wyjatek nawigacji daje jeden werdykt: "blad nawigacji".
+
+    Funkcja wyglada na zbedna, bo zwraca stala. Istnieje dlatego, ze
+    przez jeden przebieg NIE zwracala stalej: blad certyfikatu dostawal
+    tu osobny werdykt "strona bledu przegladarki". Oparlem to na zdaniu
+    z wlasnego README, ktorego nie sprawdzilem przeciwko danym.
+    W zbiorze pierwotnym 65 z 94 werdyktow "blad nawigacji" to ERR_CERT_*
+    i ERR_SSL_* - wersja PowerShell tez tam padala. Zgodnosc obu
+    implementacji spadla przez to z 93,3% do 90,2%.
+
+    Osobne miejsce w kodzie daje osobne miejsce na test.
+    """
+    return "blad nawigacji"
 
 
 def zbadaj_domene(strona, domena, timeout_ms, url=None, czekaj_ms=2500):
@@ -155,25 +170,28 @@ def zbadaj_domene(strona, domena, timeout_ms, url=None, czekaj_ms=2500):
     except PwError as e:
         komunikat = str(e).splitlines()[0][:160]
         rekord["Uwaga"] = komunikat
-        # Blad certyfikatu to NIE jest blad nawigacji.
+        # Blad certyfikatu dostaje werdykt "blad nawigacji" - dokladnie tak,
+        # jak robi to wersja PowerShell.
         #
-        # Wersja PowerShell w tej sytuacji dostawala od przegladarki jej
-        # wlasna strone bledu i mierzyla ja - stad werdykt "strona bledu
-        # przegladarki". Playwright zamiast tego rzuca wyjatek, wiec ta sama
-        # rzeczywistosc wyglada inaczej na powierzchni.
+        # Przez jeden przebieg stalo tu mapowanie na "strona bledu
+        # przegladarki". Oparlem je na zdaniu z wlasnego README, ze wersja
+        # PowerShell dostawala w tej sytuacji strone bledu przegladarki
+        # i mierzyla ja jako tresc. Sprawdzilem to zdanie dopiero pozniej:
+        # w zbiorze pierwotnym 65 z 94 werdyktow "blad nawigacji" to wlasnie
+        # ERR_CERT_* i ERR_SSL_*. PowerShell nigdy tych stron nie mierzyl -
+        # nawigacja padala tam tak samo jak tutaj.
         #
-        # Na probce 163 domen ta jedna roznica odpowiadala za piec z jedenastu
-        # niezgodnosci miedzy implementacjami.
-        rekord["Werdykt"] = (
-            "strona bledu przegladarki" if czy_blad_certyfikatu(komunikat)
-            else "blad nawigacji")
+        # Mapowanie obnizylo zgodnosc obu implementacji z 93,3% do 90,2%,
+        # bo przesunelo cztery domeny z kategorii, w ktorej sie zgadzaly.
+        rekord["Werdykt"] = werdykt_wyjatku_nawigacji(komunikat)
         return rekord
 
     # KOD HTTP I ADRES KONCOWY — bez tych dwoch rzeczy rekord nie ma prawa
     # wejsc do statystyk. Ta zasada powstala po tym, jak zapisalismy
     # brak wyniku jako wynik.
     rekord["KodHttp"] = odp.status if odp else ""
-    rekord["AdresKoncowy"] = strona.url
+    adres_po_wejsciu = strona.url
+    rekord["AdresKoncowy"] = adres_po_wejsciu
 
     if odp and odp.status >= 400:
         rekord["Werdykt"] = "blad HTTP %d" % odp.status
@@ -185,6 +203,20 @@ def zbadaj_domene(strona, domena, timeout_ms, url=None, czekaj_ms=2500):
     # czekac, a zestaw testow ma byc szybki.
     if czekaj_ms:
         strona.wait_for_timeout(czekaj_ms)
+
+    # ADRES KONCOWY ODCZYTANY PONOWNIE, PO ODCZEKANIU.
+    #
+    # Wczesniej stal tylko nad tym czekaniem i rekord zapisywal adres
+    # sprzed przekierowania, a werdykt liczyl sie z adresu po nim.
+    # Zmierzone na zywo: bakeforme.com oddaje HTTP 200 ze strona
+    # "Access Denied", po czym JavaScript przerzuca przegladarke na
+    # forsale.godaddy.com. Rekord miał wiec werdykt "przekierowanie na
+    # inna domene" i adres koncowy rowny domenie badanej - dowod
+    # przeczyl werdyktowi w tym samym wierszu.
+    if strona.url != adres_po_wejsciu:
+        rekord["AdresKoncowy"] = strona.url
+        rekord["Uwaga"] = ("przekierowanie JS po wejsciu: %s -> %s"
+                           % (adres_po_wejsciu, strona.url))[:160]
 
     try:
         surowy = strona.evaluate(SKRYPT_OCENY)

@@ -54,8 +54,12 @@ def test_strona_poprawna_dostaje_werdykt_ok(strona):
 
 def test_strona_bledu_przegladarki_nie_jest_liczona_jako_tresc(strona):
     """To jest ta klasa bledu, ktora w pierwotnym badaniu przeszla
-    niezauwazona: 12 witryn z nieprawidlowym certyfikatem oddalo strone
-    bledu przegladarki, a skaner policzyl ja jako tresc restauracji."""
+    niezauwazona: 12 witryn oddalo strone blokady zamiast witryny
+    - tytul "Access Denied", 52 do 265 znakow tresci - a skaner
+    policzyl ja jako tresc restauracji.
+
+    JEDENASCIE Z DWUNASTU oddalo przy tym HTTP 200. Sprawdzanie samego
+    kodu odpowiedzi nie wykryloby zadnej z nich."""
     r = zmierz(strona, "blad-certyfikatu.html")
     assert r["Werdykt"] == "strona bledu przegladarki"
     assert r["Werdykt"] != "ok", "strona bledu NIE MOZE dostac werdyktu ok"

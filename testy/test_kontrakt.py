@@ -9,6 +9,7 @@ Te testy sprawdzają samą logikę, więc uruchamiają się w milisekundach
 i nie potrzebują ani przeglądarki, ani internetu.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -156,27 +157,72 @@ def test_rdzen_zestawia_tytul_z_domena(a, b):
     assert zbadaj.rdzen(a) == zbadaj.rdzen(b)
 
 
-# ------------------------------------- blad certyfikatu z Playwrighta
+# ------------------------------------- blad nawigacji a blad certyfikatu
 
 @pytest.mark.parametrize("komunikat", [
     "Page.goto: net::ERR_CERT_DATE_INVALID at https://example.com/",
     "Page.goto: net::ERR_CERT_AUTHORITY_INVALID at https://example.com/",
+    "Page.goto: net::ERR_CERT_COMMON_NAME_INVALID at https://example.com/",
     "Page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://example.com/",
     "Page.goto: net::ERR_NAME_NOT_RESOLVED at https://example.com/",
     "Page.goto: net::ERR_CONNECTION_REFUSED at https://example.com/",
-])
-def test_komunikat_o_certyfikacie_to_strona_bledu_a_nie_blad_nawigacji(komunikat):
-    """Wersja PowerShell dostawala w tej sytuacji strone bledu przegladarki
-    i mierzyla ja. Playwright rzuca wyjatek. Ta sama rzeczywistosc musi
-    dostac ten sam werdykt, inaczej porownanie implementacji klamie."""
-    assert zbadaj.czy_blad_certyfikatu(komunikat) is True
-
-
-@pytest.mark.parametrize("komunikat", [
     "Page.goto: Timeout 22000ms exceeded",
-    'Navigation to "https://a.com/" is interrupted by another navigation',
-    "Page.goto: net::ERR_ABORTED at https://example.com/",
-    "",
 ])
-def test_zwykly_blad_nawigacji_nie_jest_bledem_certyfikatu(komunikat):
-    assert zbadaj.czy_blad_certyfikatu(komunikat) is False
+def test_kazdy_wyjatek_nawigacji_daje_blad_nawigacji(komunikat):
+    """Blad certyfikatu NIE dostaje osobnego werdyktu.
+
+    Przez jeden przebieg dostawal - mapowalem go na "strona bledu
+    przegladarki", bo tak mowilo zdanie w moim wlasnym README. Zdanie bylo
+    nieprawdziwe: w zbiorze pierwotnym 65 z 94 werdyktow "blad nawigacji"
+    to ERR_CERT_* i ERR_SSL_*. Wersja PowerShell nigdy tych stron nie
+    mierzyla. Mapowanie zbilo zgodnosc obu implementacji z 93,3% do 90,2%.
+
+    Ten test istnieje po to, zeby taka poprawka nie wrocila.
+    """
+    assert zbadaj.werdykt_wyjatku_nawigacji(komunikat) == "blad nawigacji"
+
+
+# ------------------------------------- adres koncowy musi byc koncowy
+
+def test_adres_koncowy_jest_odczytany_po_odczekaniu(monkeypatch):
+    """AdresKoncowy zapisywany przed czekaniem na doladowanie tresci nie
+    jest adresem koncowym.
+
+    Zmierzone na zywo: bakeforme.com oddaje HTTP 200 ze strona "Access
+    Denied", a po 2,5 sekundy JavaScript przerzuca przegladarke na
+    forsale.godaddy.com. Rekord mial wiec zapisany adres sprzed
+    przekierowania i werdykt policzony po nim - dowod w rekordzie
+    przeczyl werdyktowi tego samego rekordu.
+    """
+    kroki = []
+
+    class StronaUdajaca:
+        def __init__(self):
+            self._url = "https://przyklad.test/"
+        @property
+        def url(self):
+            return self._url
+        def goto(self, *a, **k):
+            kroki.append("goto")
+            class Odp:
+                status = 200
+            return Odp()
+        def wait_for_timeout(self, ms):
+            kroki.append("czekanie")
+            self._url = "https://forsale.example/przyklad.test"
+        def evaluate(self, skrypt):
+            if skrypt == "document.getElementsByTagName('*').length":
+                return 400
+            return json.dumps({"tytul": "Access Denied", "znakow": 221,
+                               "img": 0, "imgZle": 0, "link": 1, "linkZle": 0,
+                               "pole": 0, "poleZle": 0, "ramka": 0,
+                               "ramkaZle": 0, "brakLang": 0, "brakH1": 1})
+        def inner_text(self, sel):
+            return "Access Denied"
+
+    s = StronaUdajaca()
+    r = zbadaj.zbadaj_domene(s, "przyklad.test", 22000, czekaj_ms=1)
+
+    assert "czekanie" in kroki
+    assert r["AdresKoncowy"] == "https://forsale.example/przyklad.test"
+    assert r["Werdykt"] == "przekierowanie na inna domene"
